@@ -1,0 +1,33 @@
+# =============================================================================
+#  pi-agent-dashboard — docker-compose.yml
+#  Builds the root Dockerfile from THIS repo's local source (fork changes to
+#  packages/, incl. the relocated pi-matrix-bridge-plugin, are baked in).
+#
+#  Usage: docker compose up -d && docker compose attach pi
+#  Or:    docker compose run --rm pi -p "Summarize this project"
+#
+#  Without MIRROR_CN=0, npm/pnpm/debian/node mirrors default to CN mirrors.
+# =============================================================================
+
+services:
+  pi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PI_VERSION: ${PI_VERSION:-}
+        MIRROR_CN: ${MIRROR_CN:-0}
+    # image: ghcr.io/philogag/pi-agent-dashboard:latest
+    container_name: pi-agent-dashboard
+    # command: pi-dashboard --dev
+    environment:
+      - TZ=Asia/Shanghai
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    #  - PI_DASHBOARD_TRUSTNETWORK=0.0.0.0/0
+    volumes:
+      - ./workspace:/workspace
+      - ./pi:/home/pi/.pi
+    restart: "unless-stopped"
+    ports:
+      - 8000:8000

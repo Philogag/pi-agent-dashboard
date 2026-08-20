@@ -1,0 +1,52 @@
+# =============================================================================
+#  ghcr image (my-custom mainline)
+#
+#  Builds the root Dockerfile — which, unlike oh-pi-dashboard's, builds from
+#  THIS repo's own local source (fork-local changes to packages/ are baked
+#  in, including the relocated pi-matrix-bridge-plugin). Pushes to GHCR with
+#  two tags on every push:
+#    ghcr.io/<owner>/pi-agent-dashboard:latest
+#    ghcr.io/<owner>/pi-agent-dashboard:git-<short-sha>   (current commit)
+#
+#  Triggers:
+#    - push     : every push to the my-custom mainline branch
+#    - manual   : workflow_dispatch (Actions tab)
+# =============================================================================
+
+name: ghcr image (my-custom)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - my-custom
+
+concurrency:
+  group: ghcr-image
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute current-hash tag (git-<short-sha>)
+        id: sha
+        run: echo "tag=git-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish image
+        uses: macbre/push-to-ghcr@master
+        with:
+          image_name: ${{ github.repository }} # lowercased internally
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          dockerfile: Dockerfile
+          image_tag: "latest,${{ steps.sha.outputs.tag }}"
+          # This repo builds from the local source (no DASHBOARD_REF arg).
+          # CI runners reach GitHub/npmjs directly — China mirrors only slow
+          # the build here, so disable them.
+          build_arg: MIRROR_CN=0

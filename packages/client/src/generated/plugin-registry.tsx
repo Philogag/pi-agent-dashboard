@@ -8,6 +8,7 @@ import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, 
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
+import { Settings } from "../../../pi-matrix-bridge-plugin/src/client";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
@@ -331,6 +332,28 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "pi-matrix-bridge",
+        "displayName": "Pi Matrix Bridge",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "Settings",
+                "config": {
+                    "tab": "general"
+                }
+            }
+        ],
+        "client": "./src/client.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json"
+    },
+    claims: [
+      { pluginId: "pi-matrix-bridge", priority: 100, slot: "settings-section", config: {"tab":"general"}, Component: Settings },
+    ],
+  },
+  {
+    manifest: {
         "id": "roles",
         "displayName": "Roles",
         "priority": 100,
@@ -408,4 +431,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "4544ec8f44947cd7f82b48f8233d8a77936cb45a8198b2ca1181c221ca0ae5cc";
+export const PLUGIN_REGISTRY_HASH = "ebf065028e3f167f93998a80115d3f8b7002fc1c9f1e2f45591bd1abedf45fee";
