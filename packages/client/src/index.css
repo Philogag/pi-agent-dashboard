@@ -16,6 +16,7 @@
 @source "../../subagents-plugin/src/client";
 @source "../../goal-plugin/src/client";
 @source "../../automation-plugin/src/client";
+@source "../../pi-matrix-bridge-plugin/src";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/

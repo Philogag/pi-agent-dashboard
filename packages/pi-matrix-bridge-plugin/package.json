@@ -5,8 +5,8 @@
   "type": "module",
   "private": false,
   "exports": {
-      "./client": "./src/client.tsx",
-      "./server": "./src/server/index.ts"
+    "./client": "./src/client.tsx",
+    "./server": "./src/server/index.ts"
   },
   "files": [
     "src/",
@@ -33,7 +33,7 @@
     "fastify": "^5.0.0",
     "jsdom": "^25.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   },
   "pi-dashboard-plugin": {
     "id": "pi-matrix-bridge",
@@ -44,13 +44,13 @@
     "server": "./src/server/index.ts",
     "configSchema": "./configSchema.json",
     "claims": [
-          {
-                "slot": "settings-section",
-                "component": "Settings",
-                "config": {
-                      "tab": "general"
-                }
-          }
+      {
+        "slot": "settings-section",
+        "component": "Settings",
+        "config": {
+          "tab": "general"
+        }
+      }
     ]
   }
 }
