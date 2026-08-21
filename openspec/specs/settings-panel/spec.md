@@ -988,54 +988,6 @@ The Trusted Networks section on the Security tab SHALL render the bind reachabil
 - **WHEN** the Trusted Networks section renders
 - **THEN** the advisory SHALL appear between the section description and the trusted-entry list
 
-### Requirement: Default thinking level control paired with the default model
-
-The Sessions page SHALL render a thinking-level control inside the same
-`--severity-info-*` callout that hosts the `defaultModel` control, positioned
-beside the Default Model selector. The control SHALL be bound to
-`config.defaultThinkingLevel`. When the user changes it, the Settings panel SHALL
-include `defaultThinkingLevel` in the partial sent to `PUT /api/config`.
-
-The control's selectable levels SHALL be derived from the currently selected
-Default Model's supported thinking levels (the same `supportedThinkingLevels`
-source used elsewhere in the client). When the selected Default Model changes, the
-selectable levels SHALL re-derive from the newly selected model.
-
-When **no** Default Model is selected, the control SHALL be locked to `off`: it
-renders and displays `off`, and no other level is selectable. In this locked
-state any selection interaction SHALL be a no-op for persistence — it SHALL NOT
-add `defaultThinkingLevel` to the `PUT /api/config` partial and SHALL NOT write
-`"off"`. The persisted `defaultThinkingLevel` SHALL remain `""` (empty — "do not
-override"), never a spurious `off` override.
-
-#### Scenario: Control renders beside the default model
-
-- **WHEN** the Sessions page is rendered with a Default Model selected
-- **THEN** a thinking-level control SHALL appear inside the Default Model callout beside the Default Model selector
-
-#### Scenario: Levels filter to the selected model
-
-- **WHEN** a Default Model with a limited set of supported thinking levels is selected
-- **THEN** the thinking-level control SHALL offer only that model's supported levels
-
-#### Scenario: Levels re-derive when the default model changes
-
-- **WHEN** the user changes the Default Model to a different model
-- **THEN** the thinking-level control's selectable levels SHALL re-derive from the newly selected model
-
-#### Scenario: Locked to off when no model is selected
-
-- **WHEN** the Sessions page is rendered with no Default Model selected
-- **THEN** the thinking-level control SHALL display `off`
-- **AND** no level other than `off` SHALL be selectable
-- **AND** interacting with the locked control SHALL NOT persist any value
-- **AND** the persisted `defaultThinkingLevel` SHALL remain an empty string
-
-#### Scenario: Selecting a level persists it
-
-- **WHEN** the user selects a supported thinking level with a Default Model selected
-- **THEN** the Settings panel SHALL include `defaultThinkingLevel` set to that level in the partial sent to `PUT /api/config`
-
 ### Requirement: Default Model options are the union of the server catalogue and session models
 
 The Settings panel SHALL source the Default Model selector's options from the union of:
@@ -1240,4 +1192,86 @@ A successful response carrying an empty list SHALL NOT render this callout.
 - **AND** a connected session pushed a non-empty `models_list`
 - **WHEN** the Default Model selector is rendered
 - **THEN** it SHALL still offer that session's models
+
+### Requirement: Default thinking level control paired with the default model
+
+The Sessions page SHALL render a thinking-level control inside the same
+`--severity-info-*` callout that hosts the `defaultModel` control, positioned
+beside the Default Model selector. The control SHALL be bound to
+`config.defaultThinkingLevel`. When the user changes it, the Settings panel SHALL
+include `defaultThinkingLevel` in the partial sent to `PUT /api/config`.
+
+The control's selectable levels SHALL be derived from the currently selected
+Default Model's supported thinking levels (the same `supportedThinkingLevels`
+source used elsewhere in the client). When the selected Default Model changes, the
+selectable levels SHALL re-derive from the newly selected model.
+
+When **no** Default Model is selected, the control SHALL be locked to `off`: it
+renders and displays `off`, and no other level is selectable. In this locked
+state any selection interaction SHALL be a no-op for persistence — it SHALL NOT
+add `defaultThinkingLevel` to the `PUT /api/config` partial and SHALL NOT write
+`"off"`. The persisted `defaultThinkingLevel` SHALL remain `""` (empty — "do not
+override"), never a spurious `off` override.
+
+#### Scenario: Control renders beside the default model
+
+- **WHEN** the Sessions page is rendered with a Default Model selected
+- **THEN** a thinking-level control SHALL appear inside the Default Model callout beside the Default Model selector
+
+#### Scenario: Levels filter to the selected model
+
+- **WHEN** a Default Model with a limited set of supported thinking levels is selected
+- **THEN** the thinking-level control SHALL offer only that model's supported levels
+
+#### Scenario: Levels re-derive when the default model changes
+
+- **WHEN** the user changes the Default Model to a different model
+- **THEN** the thinking-level control's selectable levels SHALL re-derive from the newly selected model
+
+#### Scenario: Locked to off when no model is selected
+
+- **WHEN** the Sessions page is rendered with no Default Model selected
+- **THEN** the thinking-level control SHALL display `off`
+- **AND** no level other than `off` SHALL be selectable
+- **AND** interacting with the locked control SHALL NOT persist any value
+- **AND** the persisted `defaultThinkingLevel` SHALL remain an empty string
+
+#### Scenario: Selecting a level persists it
+
+- **WHEN** the user selects a supported thinking level with a Default Model selected
+- **THEN** the Settings panel SHALL include `defaultThinkingLevel` set to that level in the partial sent to `PUT /api/config`
+
+### Requirement: Memory Limits section exposes `maxReplayEvents`
+
+The Memory Limits section of the settings panel SHALL expose a numeric control for `memoryLimits.maxReplayEvents`, alongside the existing memory-limit controls, with a hint explaining that `0` disables the bound and that earlier history remains loadable on demand.
+
+#### Scenario: Control renders with the configured value
+
+- **WHEN** the settings panel loads with `maxReplayEvents` set to `500`
+- **THEN** the Memory Limits section SHALL display a control showing `500`
+
+#### Scenario: Control renders the default when the field is absent
+
+- **WHEN** the settings panel loads a config with no `maxReplayEvents`
+- **THEN** the control SHALL display `0`
+
+#### Scenario: Edited value is written back
+
+- **WHEN** the user changes the control to `500` and saves
+- **THEN** the config write SHALL include `memoryLimits.maxReplayEvents` of `500`
+- **AND** the other `memoryLimits` values SHALL be written unchanged
+
+#### Scenario: Change is marked as requiring a restart
+
+- **WHEN** the user changes the control
+- **THEN** the panel SHALL indicate the change requires a server restart, consistent with the other Memory Limits controls
+
+### Requirement: The `maxReplayEvents` control is localized
+
+The control's label and hint SHALL be provided through the translation layer with an English fallback, consistent with the sibling Memory Limits controls.
+
+#### Scenario: Label resolves in each supported locale
+
+- **WHEN** the settings panel renders in a supported locale
+- **THEN** the control's label SHALL resolve through the translation layer rather than a hard-coded string
 

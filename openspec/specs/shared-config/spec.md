@@ -348,40 +348,6 @@ The runtime auth reload SHALL merge the top-level `trustedNetworks` exactly as b
 - **WHEN** the server booted with a top-level `trustedNetworks` entry and any auth reload runs
 - **THEN** an address in that range SHALL still bypass the auth gate
 
-### Requirement: Default thinking level config field
-
-The config schema SHALL include a `defaultThinkingLevel` field of type string with
-a default of `""` (empty string). A non-empty value SHALL be one of pi's canonical
-thinking levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`,
-`"max"`. An empty string SHALL mean **"do not override"** — consumers SHALL leave
-pi's own thinking-level resolution intact, mirroring the existing `defaultModel: ""`
-"do not override" semantics.
-
-Values that are not a string SHALL fall back to the default `""`. The loader SHALL
-NOT reject an unrecognized non-empty string at config-load time; validation against
-a specific model's capabilities happens where the level is applied (the bridge
-clamps via pi) and where it is edited (the Settings control filters).
-
-#### Scenario: Config with defaultThinkingLevel set
-
-- **WHEN** `~/.pi/dashboard/config.json` contains `{ "defaultThinkingLevel": "high" }`
-- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: "high"` with defaults for all other fields
-
-#### Scenario: Config without defaultThinkingLevel
-
-- **WHEN** `~/.pi/dashboard/config.json` does not include `defaultThinkingLevel`
-- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: ""`
-
-#### Scenario: Non-string defaultThinkingLevel falls back to default
-
-- **WHEN** `~/.pi/dashboard/config.json` contains `{ "defaultThinkingLevel": 3 }`
-- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: ""`
-
-#### Scenario: Partial update preserves other fields
-
-- **WHEN** `PUT /api/config` sends a partial `{ "defaultThinkingLevel": "low" }`
-- **THEN** the persisted config SHALL set `defaultThinkingLevel: "low"` and leave all other fields unchanged
-
 ### Requirement: A live tunnel URL may be offered for gateway registration, never added silently
 When a provider is `connected` and its live URL is absent from the `gateways` records, the
 Gateway surface SHALL offer an action to register that URL as a gateway record. When the URL
@@ -473,4 +439,83 @@ SHALL be required, along with at least one address or CIDR.
 - **WHEN** a gateway URL is registered with only `trusted-network` and/or `pairing`
 - **THEN** the OAuth redirect base SHALL be unaffected, because `publicBaseUrls` is never an OAuth redirect source
 - **AND** this SHALL NOT be read as a guarantee for the `oauth` path, which writes `auth.redirectBaseUrl` and is governed by the primary-only + confirmation rules above
+
+### Requirement: Default thinking level config field
+
+The config schema SHALL include a `defaultThinkingLevel` field of type string with
+a default of `""` (empty string). A non-empty value SHALL be one of pi's canonical
+thinking levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`,
+`"max"`. An empty string SHALL mean **"do not override"** — consumers SHALL leave
+pi's own thinking-level resolution intact, mirroring the existing `defaultModel: ""`
+"do not override" semantics.
+
+Values that are not a string SHALL fall back to the default `""`. The loader SHALL
+NOT reject an unrecognized non-empty string at config-load time; validation against
+a specific model's capabilities happens where the level is applied (the bridge
+clamps via pi) and where it is edited (the Settings control filters).
+
+#### Scenario: Config with defaultThinkingLevel set
+
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "defaultThinkingLevel": "high" }`
+- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: "high"` with defaults for all other fields
+
+#### Scenario: Config without defaultThinkingLevel
+
+- **WHEN** `~/.pi/dashboard/config.json` does not include `defaultThinkingLevel`
+- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: ""`
+
+#### Scenario: Non-string defaultThinkingLevel falls back to default
+
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "defaultThinkingLevel": 3 }`
+- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: ""`
+
+#### Scenario: Partial update preserves other fields
+
+- **WHEN** `PUT /api/config` sends a partial `{ "defaultThinkingLevel": "low" }`
+- **THEN** the persisted config SHALL set `defaultThinkingLevel: "low"` and leave all other fields unchanged
+
+### Requirement: `memoryLimits.maxReplayEvents` config field
+
+The config schema SHALL include `memoryLimits.maxReplayEvents`, a number bounding how many events a full-stream session replay delivers to a browser. `0` SHALL mean unlimited. The default SHALL be `0`.
+
+#### Scenario: Absent field defaults to unlimited
+
+- **WHEN** a config file contains a `memoryLimits` object without `maxReplayEvents`
+- **THEN** the parsed config SHALL report `maxReplayEvents` of `0`
+- **AND** every other `memoryLimits` value SHALL be unchanged
+
+#### Scenario: Existing config files behave identically
+
+- **WHEN** a config file written before this field existed is loaded
+- **THEN** session replay SHALL deliver the same events it delivered before the field existed
+
+#### Scenario: Configured value is threaded to the server
+
+- **WHEN** `maxReplayEvents` is set to a positive number in the config file
+- **THEN** the running server SHALL apply that value when windowing a full-stream replay
+
+### Requirement: `maxReplayEvents` is validated to a minimum viable window
+
+A positive `maxReplayEvents` below the minimum viable window SHALL be clamped up to that minimum, so a configured window can never be too small to contain a head segment. A negative value SHALL be treated as unset and SHALL parse to `0`.
+
+#### Scenario: Below-minimum positive value is clamped
+
+- **WHEN** `maxReplayEvents` is set to `5`
+- **THEN** the parsed config SHALL report the minimum viable window rather than `5`
+
+#### Scenario: Zero is preserved rather than clamped
+
+- **WHEN** `maxReplayEvents` is set to `0`
+- **THEN** the parsed config SHALL report `0`
+
+#### Scenario: Non-numeric value falls back to the default
+
+- **WHEN** `maxReplayEvents` is present but not a number
+- **THEN** the parsed config SHALL report `0`
+
+#### Scenario: Negative value falls back to unlimited
+
+- **WHEN** `maxReplayEvents` is set to `-1`
+- **THEN** the parsed config SHALL report `0`
+- **AND** replay SHALL be unbounded rather than clamped to the minimum window
 

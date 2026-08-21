@@ -41,6 +41,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts page-level `git-branch-btn` (title "Switch branch")… → see `git-panel.spec.ts.AGENTS.md` |
 | `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only verify `/api/health` (30s). → see `global-setup.ts.AGENTS.md` |
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run `docker/test-down.sh` with… → see `global-teardown.ts.AGENTS.md` |
+| `headless-reload-dispatch.spec.ts` | L3 for `fix-out-of-band-reload` (#F1–#F3). Bare `/reload` on a headless harness session: one terminal `/reload` pill, a NEW pid after the respawn, status converging off `ended`, accumulated tokens surviving the re-register. |
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
 | `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
@@ -91,6 +92,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default Model picker (test-plan #F4): stubs `GET /api/models`, asserts populate → save → reload, plus the 503 sibling callout. |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors`. Sweeps 5 tiers × 9 themes × {light,dark} via `localStorage`… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils `/api/pi-resources` with crafted payloads and drives the… → see `skill-provenance.spec.ts.AGENTS.md` |
+| `spawn-correlation-recovery.spec.ts` | L3 F2-F6: a late spawn register clears the banner AND adds the card; `dashboardSpawned` visibility; concurrent same-cwd spawns; prompt transmitted + handle. → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders (title `PI Dashboard` + `header-app-bar`), no… → see `smoke.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens `split-toggle` at viewport 1280 (≥ md); asserts… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` Also carries F4 (the live subagent timeline advances ≥ 2 distinct states in a 10 s window — collapse is retention-only and never suppresses a broadcast). See change: collapse-superseded-tool-execution-updates. The throttle cadence rows (F1/P1/P2/F2/F5/P4) MOVED to `subagent-tick-throttle.spec.ts` (synthetic-producer arm). See change: reduce-bridge-tick-bandwidth. |
