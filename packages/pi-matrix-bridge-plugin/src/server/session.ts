@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import type { MatrixBridgeConfig, BridgeState } from "../types.js";
+import type { BridgeState, MatrixBridgeConfig } from "../types.js";
 
 export interface SessionInfo {
   state: BridgeState;
@@ -73,7 +73,7 @@ export class BackgroundSession {
   }
 
   private async startImpl(): Promise<{ ok: boolean; reason?: string }> {
-    const { session, homeserverUrl, accessToken, autoConnect } = this.cfg();
+    const { session, homeserverUrl, accessToken } = this.cfg();
     if (!homeserverUrl || !accessToken) {
       return { ok: false, reason: "matrix config incomplete" };
     }
@@ -86,7 +86,10 @@ export class BackgroundSession {
       ...process.env,
       PI_MATRIX_BRIDGE_HOMESERVER: homeserverUrl,
       PI_MATRIX_BRIDGE_ACCESS_TOKEN: accessToken,
-      PI_MATRIX_BRIDGE_AUTO_CONNECT: autoConnect ? "1" : "0",
+      // The spawned session exists solely for Matrix bridging: always auto-connect
+      // to Matrix regardless of the store's autoConnect toggle (which only gates
+      // whether the session is spawned at registration time).
+      PI_MATRIX_BRIDGE_AUTO_CONNECT: "1",
     };
 
     // Guard against starting over a live child: tear it down first.
@@ -143,7 +146,7 @@ export class BackgroundSession {
 
     const timedOut = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(true), STOP_TIMEOUT_MS);
-      exited.then(() => {
+      void exited.then(() => {
         clearTimeout(timer);
         resolve(false);
       });
@@ -178,7 +181,7 @@ export class BackgroundSession {
     child.kill("SIGTERM");
     const timedOut = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(true), STOP_TIMEOUT_MS);
-      exited.then(() => {
+      void exited.then(() => {
         clearTimeout(timer);
         resolve(false);
       });

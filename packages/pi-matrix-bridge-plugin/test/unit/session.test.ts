@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ChildProcess } from "node:child_process";
+import { describe, expect, it, vi } from "vitest";
 import { BackgroundSession } from "../../src/server/session.js";
-import type { MatrixBridgeConfig, BridgeState } from "../../src/types.js";
+import type { BridgeState, MatrixBridgeConfig } from "../../src/types.js";
 
 const base: MatrixBridgeConfig = {
   homeserverUrl: "https://example.org",
@@ -74,6 +74,16 @@ describe("BackgroundSession", () => {
     expect(session.info().pid).toBe(child!.pid);
   });
 
+  it("forces PI_MATRIX_BRIDGE_AUTO_CONNECT=1 even when store autoConnect is off (matrix-dedicated session)", async () => {
+    const spawnImpl: SpawnImpl = (cmd, args, opts) => new FakeChild(cmd, args, opts) as unknown as ChildProcess;
+    const session = new BackgroundSession(() => ({ ...base, autoConnect: false }), spawnImpl);
+
+    const res = await session.start();
+
+    expect(res.ok).toBe(true);
+    expect((session.child as unknown as FakeChild).opts.env?.["PI_MATRIX_BRIDGE_AUTO_CONNECT"]).toBe("1");
+  });
+
   it("start() with an incomplete config returns ok:false and does not spawn", async () => {
     const spawnImpl = vi.fn<SpawnImpl>();
     const session = new BackgroundSession(
@@ -90,7 +100,7 @@ describe("BackgroundSession", () => {
 
   it("start() with a missing workspace refuses to spawn with a workspace reason", async () => {
     const spawnImpl = vi.fn<SpawnImpl>();
-    const missing = join(tmpdir(), "session-missing-workspace-" + Date.now());
+    const missing = join(tmpdir(), `session-missing-workspace-${Date.now()}`);
     const session = new BackgroundSession(
       () => ({ ...base, session: { workspace: missing } }),
       spawnImpl as unknown as SpawnImpl,

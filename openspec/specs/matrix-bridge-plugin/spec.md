@@ -25,7 +25,7 @@
 
 #### Scenario: 注册期快照加载并可自动启动
 - **WHEN** 文件有效且插件存储 `autoConnect` 为真（含默认值）
-- **THEN** 快照加载，后台 pi 会话以快照连接配置自动启动（spawn 环境注入 `PI_MATRIX_BRIDGE_HOMESERVER` / `PI_MATRIX_BRIDGE_ACCESS_TOKEN` / `PI_MATRIX_BRIDGE_AUTO_CONNECT`）
+- **THEN** 快照加载，后台 pi 会话以快照连接配置自动启动（spawn 环境注入 `PI_MATRIX_BRIDGE_HOMESERVER` / `PI_MATRIX_BRIDGE_ACCESS_TOKEN` / `PI_MATRIX_BRIDGE_AUTO_CONNECT`；`PI_MATRIX_BRIDGE_AUTO_CONNECT` SHALL 恒为启用 —— 该后台会话专用于 Matrix 通讯，即使插件存储 `autoConnect` 关闭、会话经手动启动，也自动连接 Matrix）
 
 #### Scenario: 文件缺失或无效时静默降级
 - **WHEN** `~/.pi/matrix-bridge.json` 不存在、不可读或不含有效连接配置
