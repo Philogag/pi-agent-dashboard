@@ -47,9 +47,9 @@ RUN if [ "${MIRROR_CN}" = "1" ]; then \
     git \
     ripgrep \
     findutils \
-    sudo \
     gosu \
     jq \
+    vim \
     openssh-client \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd || true \
@@ -193,20 +193,25 @@ RUN npm install -g /tmp/dashboard/*.tgz \
  && rm -rf /tmp/dashboard \
  && npm cache clean --force
 
-RUN  groupadd -g $PUID pi \
-  && useradd -m -u $PGID -g pi -s /bin/bash pi \
-  && usermod -aG sudo pi
+# Shared playwright browser cache: pre-baked for pi and writable at runtime so
+# pi can run `playwright install` on demand (chowned to pi in the entrypoint).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# Pre-install playwright + chromium (+ its apt deps; --with-deps runs its own
+# apt-get update so the base image lists are fine). Firefox/webkit NOT baked.
+# MIRROR_CN=1: browser binaries come from the npmmirror CDN (the azure edge
+# CDN is slow from CN); the same host is exported at runtime via
+# /etc/environment so pi's own browser installs reuse the mirror.
+RUN if [ "${MIRROR_CN}" = "1" ]; then \
+      echo 'PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright' >> /etc/environment; \
+      export PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright; \
+    fi \
+ && npm install -g playwright \
+ && npx playwright install --with-deps chromium \
+ && chown -R 1000:1000 /ms-playwright \
+ && npm cache clean --force
 
-# allow pi user to run apt/apt-get and npm install -g via sudo without password
-# - NOPASSWD list is restricted to these commands only; everything else requires password
-# - sudo uses secure_path, not the user's PATH, so /opt/node/latest/bin must be added
-#   for `sudo npm ...` to resolve (npm lives at /opt/node/latest/bin/npm)
-RUN { \
-      echo 'Defaults    secure_path = /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/node/latest/bin'; \
-      echo 'pi ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /opt/node/latest/bin/npm install -g'; \
-    } > /etc/sudoers.d/90-for-pi \
-  && chmod 440 /etc/sudoers.d/90-for-pi \
-  && visudo -c
+RUN  groupadd -g $PUID pi \
+  && useradd -m -u $PGID -g pi -s /bin/bash pi
 
 RUN cat <<EOF >> /entrypoint.sh
 if [[ -z "\${PUID}" || -z "\${PGID}" ]] || ! [[ "\${PUID}" =~ ^[0-9]+$ ]] || ! [[ "\${PGID}" =~ ^[0-9]+$ ]]; then
@@ -234,6 +239,10 @@ chown "\${PUID}:\${PGID}" /home/pi 2>/dev/null || true
 
 echo "[supervisor][info] Solve workspace ownership"
 chown "\${PUID}:\${PGID}" /workspace 2>/dev/null || true
+
+echo "[supervisor][info] Grant node runtime to pi (real-time npm install -g)"
+chown -R "\${PUID}:\${PGID}" /opt/node 2>/dev/null || true
+chown -R "\${PUID}:\${PGID}" /ms-playwright 2>/dev/null || true
 
 echo "[supervisor][info] Inject pi-dashboard configs"
 CFG_HOME=/home/pi/.pi/dashboard
@@ -313,6 +322,9 @@ fi
 chown -R "\${PUID}:\${PGID}" /home/pi/.pi/agent 2>/dev/null || true
 
 echo "[supervisor][info] Enter runtime"
+# Surface /etc/environment (e.g. PLAYWRIGHT_DOWNLOAD_HOST) to the dropped-down
+# user — `exec gosu pi` bypasses PAM, which would otherwise read it.
+set -a; [ -f /etc/environment ] && . /etc/environment; set +a
 exec gosu pi "\$@"
 EOF
 RUN chmod +x /entrypoint.sh
