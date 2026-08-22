@@ -86,6 +86,19 @@ EOF
 RUN bash /opt/install_node.sh ${NODE_VERSION} ${ARCH} ${MIRROR_CN}
 ENV PATH="/opt/node/latest/bin:${PATH}"
 
+# Grant pi the node runtime via a BUILD-TIME supplementary group instead of a
+# runtime `chown -R /opt/node` on every container start (slow on the whole
+# nvm tree). Group `node` gets service-range GID 999 — below the user range —
+# so it can never collide with the PUID/PGID the entrypoint remaps to
+# (entrypoint enforces >= 1000, and build-time `groupadd -g $PUID pi` uses
+# 1000). Group owns /opt/node, group-writable with exec kept (g+rwX); pi
+# joins at user creation; supplementary memberships survive the entrypoint's
+# usermod/groupmod remap, so a remapped PUID writes through the group
+# regardless of ownership.
+RUN groupadd -g 999 node \
+ && chown -R root:node /opt/node \
+ && chmod -R g+rwX /opt/node
+
 # ======================== Stage: dashboard-builder ============================
 FROM node-base AS dashboard-builder
 
@@ -193,8 +206,9 @@ RUN npm install -g /tmp/dashboard/*.tgz \
  && rm -rf /tmp/dashboard \
  && npm cache clean --force
 
-# Shared playwright browser cache: pre-baked for pi and writable at runtime so
-# pi can run `playwright install` on demand (chowned to pi in the entrypoint).
+# Shared playwright browser cache: pre-baked for pi and writable at runtime
+# so pi can run `playwright install` on demand (same build-time node group as
+# /opt/node: root:node + g+rwX, no runtime chown).
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # Pre-install playwright + chromium (+ its apt deps; --with-deps runs its own
 # apt-get update so the base image lists are fine). Firefox/webkit NOT baked.
@@ -207,19 +221,21 @@ RUN if [ "${MIRROR_CN}" = "1" ]; then \
     fi \
  && npm install -g playwright \
  && npx playwright install --with-deps chromium \
- && chown -R 1000:1000 /ms-playwright \
+ && chown -R root:node /ms-playwright \
+ && chmod -R g+rwX /ms-playwright \
  && npm cache clean --force
 
 RUN  groupadd -g $PUID pi \
-  && useradd -m -u $PGID -g pi -s /bin/bash pi
+  && useradd -m -u $PGID -g pi -s /bin/bash pi \
+  && usermod -aG node pi
 
 RUN cat <<EOF >> /entrypoint.sh
 if [[ -z "\${PUID}" || -z "\${PGID}" ]] || ! [[ "\${PUID}" =~ ^[0-9]+$ ]] || ! [[ "\${PGID}" =~ ^[0-9]+$ ]]; then
   echo "[supervisor][error] Invalid PUID/PGID = \${PUID}/\${PGID} (must be numeric)"
   exit -1
 fi
-if [[ \${PUID} -lt 100 || \${PGID} -lt 100 ]]; then
-  echo "[supervisor][error] Invalid PUID/PGID = \${PUID}/\${PGID} (must be >= 100)"
+if [[ \${PUID} -lt 1000 || \${PGID} -lt 1000 ]]; then
+  echo "[supervisor][error] Invalid PUID/PGID = \${PUID}/\${PGID} (must be >= 1000 — below that collides with the service-range node group GID 999)"
   exit -1
 fi
 
@@ -240,9 +256,7 @@ chown "\${PUID}:\${PGID}" /home/pi 2>/dev/null || true
 echo "[supervisor][info] Solve workspace ownership"
 chown "\${PUID}:\${PGID}" /workspace 2>/dev/null || true
 
-echo "[supervisor][info] Grant node runtime to pi (real-time npm install -g)"
-chown -R "\${PUID}:\${PGID}" /opt/node 2>/dev/null || true
-chown -R "\${PUID}:\${PGID}" /ms-playwright 2>/dev/null || true
+echo "[supervisor][info] Node runtime + playwright cache writable to pi via node group (baked at build)"
 
 echo "[supervisor][info] Inject pi-dashboard configs"
 CFG_HOME=/home/pi/.pi/dashboard
