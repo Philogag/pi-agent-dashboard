@@ -5,27 +5,35 @@
 
 ## Requirements
 
-### Requirement: Matrix 连接配置管理
-系统 SHALL 在设置页提供 Matrix 连接配置面板，允许用户读取并修改：homeserver URL、bot 访问令牌（access token）、E2EE 加密开关、自动连接开关，以及后台会话的工作目录（workspace）。修改后的配置 MUST 通过 `plugin_config_write` 持久化到 dashboard 的插件配置，并立即生效于后续后台会话启动。
+### Requirement: 配置直接使用本地桥梁配置
+`~/.pi/matrix-bridge.json` SHALL 是 Matrix 连接与配对配置的**唯一持久化来源**（上游 `pi-matrix-bridge` 扩展原生 schema：顶层 `matrix.{homeserverUrl,accessToken}` 与 `auth.{trustedUsers,channels}`）。系统 SHALL 经插件 REST 端点（`GET /api/pi-matrix-bridge/config`）读取该文件并以扁平化视图呈现给设置页（`matrix.*` 展平、`auth.trustedUsers` 去除 `matrix:` 传输前缀），access token SHALL 明文回显以便修改（文件权限 600，仅当前用户可读写）。设置页保存 SHALL 经 `POST /api/pi-matrix-bridge/config` 直接写回该文件：连接字段 MUST 以嵌套 `matrix.*` 结构存储，可信用户 MUST 以 `matrix:@user:server` 传输命名空间格式存储，写入前 MUST 读取并合并保留文件中已有的每房间权限数据 `auth.channels`（不得丢失扩展 DM 命令 `/channels` 等写入的房间级模式），文件权限 MUST 为 600。dashboard 插件存储（`plugins.pi-matrix-bridge.*`）SHALL 只承载会话侧字段（`workspace` / `autoConnect` / `encryption`，以及生命周期 `enabled`），不得再持久化连接或配对字段；`configSchema.json` MUST 与之一致（收窄）。
 
-#### Scenario: 用户在设置页保存 Matrix 配置
-- **WHEN** 用户在设置页填写 homeserver URL 与 access token 并点击保存
-- **THEN** 系统将配置持久化，并提示保存成功，后续启动的后台会话使用该配置连接 Matrix
+#### Scenario: 设置页显示文件配置
+- **WHEN** `~/.pi/matrix-bridge.json` 含有效连接配置，用户打开设置页
+- **THEN** 设置页显示文件的 homeserver URL、access token（回显）与可信用户列表（去除 `matrix:` 前缀），不产生 `plugin_config_write`
 
-#### Scenario: 配置缺省值
-- **WHEN** 用户在未填写任何 Matrix 配置时查看设置页
-- **THEN** 系统以默认值或缺省展示，不因缺少配置而报错
+#### Scenario: 保存配置写入文件
+- **WHEN** 用户在设置页保存连接或配对配置（含新增/移除可信用户）
+- **THEN** `~/.pi/matrix-bridge.json` 更新：连接字段位于顶层 `matrix` 对象内，`auth.trustedUsers` 以 `matrix:` 前缀存储，既存 `auth.channels` 内容保持不变，文件权限为 600
 
-### Requirement: 配置镜像到本地桥梁配置
-系统 SHALL 在每次 Matrix 连接配置被持久化时，将等效配置镜像写入用户主目录下的 `~/.pi/matrix-bridge.json`，且该文件写入权限 MUST 为 600（仅当前用户可读写），使手动运行的、安装了 `pi-matrix-bridge` 扩展的桌面 pi 共享同一配置。
-
-#### Scenario: 保存配置后同步镜像文件
-- **WHEN** 用户在设置页保存 Matrix 连接配置
-- **THEN** 系统将相同配置写入 `~/.pi/matrix-bridge.json`，文件权限为 600
-
-#### Scenario: 镜像失败
+#### Scenario: 写入文件失败
 - **WHEN** 系统无法写入 `~/.pi/matrix-bridge.json`（如权限不足或磁盘错误）
-- **THEN** 系统记录错误并在设置页提示配置文件镜像失败，但不阻断插件配置本身的持久化
+- **THEN** 系统返回错误并在设置页提示写入失败，不写入插件存储
+
+### Requirement: 配置初始化自本地桥梁文件
+系统 SHALL 在插件注册期读取 `~/.pi/matrix-bridge.json` 一次并保存在内存快照中，作为后台会话启动决策与设置页视图的连接来源；该文件缺失、不可读或无效（无有效的顶层 `matrix` 连接对象）时，系统 MUST 静默降级 —— 设置页显示空表单、不发生自动启动、不报错、不产生日志噪音。后台会话的自动启动判定 SHALL 为：插件存储 `autoConnect` 为真 且 快照含可用连接（`matrix.homeserverUrl` 与 `matrix.accessToken` 均非空）；会话启动配置 SHALL 取快照连接字段与插件存储会话侧字段的合并视图。设置页经 `POST /api/pi-matrix-bridge/config` 保存成功后，系统 SHALL 刷新内存快照，使后续会话启动/重启使用新值。
+
+#### Scenario: 注册期快照加载并可自动启动
+- **WHEN** 文件有效且插件存储 `autoConnect` 为真（含默认值）
+- **THEN** 快照加载，后台 pi 会话以快照连接配置自动启动（spawn 环境注入 `PI_MATRIX_BRIDGE_HOMESERVER` / `PI_MATRIX_BRIDGE_ACCESS_TOKEN` / `PI_MATRIX_BRIDGE_AUTO_CONNECT`）
+
+#### Scenario: 文件缺失或无效时静默降级
+- **WHEN** `~/.pi/matrix-bridge.json` 不存在、不可读或不含有效连接配置
+- **THEN** 系统跳过快照，设置页显示空表单、会话不自动启动、不报错
+
+#### Scenario: 保存后快照刷新
+- **WHEN** 用户经设置页保存连接配置成功
+- **THEN** 内存快照更新为保存值；随后触发的会话启动/重启使用新值
 
 ### Requirement: 后台 pi 会话生命周期管理
 系统 SHALL 提供一个随 dashboard server 生命周期管理的「后台 pi 会话」——一个带 Matrix 连接、以 print 模式运行的 `pi` 子进程。当自动连接开启且 Matrix 配置已就绪时，系统 SHALL 在插件注册时自动启动该会话；系统 MUST 允许用户手动启动、停止与重启该会话，并对每个会话维护当前运行状态与进程标识（PID）。
@@ -54,11 +62,11 @@
 - **THEN** 系统拒绝启动会话，并在设置页报告路径无效的原因
 
 ### Requirement: 可信用户配对管理
-系统 SHALL 在设置页提供用户配对面板，允许用户查看、添加与移除「可信 Matrix 用户」列表（每个条目为一个 Matrix 用户 ID）。该列表 MUST 持久化为插件配置的一部分，并在镜像到 `~/.pi/matrix-bridge.json` 时以桥接所需的传输命名空间格式（`matrix:@user:server`）存储，使后台会话的矩阵桥接仅接受可信用户。此面板管理的是**用户级**信任（`auth.trustedUsers`）；单个聊天室（channel）的启用与 @提及/仅可信等房间级模式权由 `pi-matrix-bridge` 自身的交互式 DM 命令（`/enable`、`/disable`、`/channels`）处理，不属于本插件范围。
+系统 SHALL 在设置页提供用户配对面板，允许用户查看、添加与移除「可信 Matrix 用户」列表（每个条目为一个 Matrix 用户 ID）。该列表 MUST 持久化到 `~/.pi/matrix-bridge.json`（连接与配对的唯一配置文件），以桥接所需的传输命名空间格式（`matrix:@user:server`）存储，使后台会话的矩阵桥接仅接受可信用户。此面板管理的是**用户级**信任（`auth.trustedUsers`）；单个聊天室（channel）的启用与 @提及/仅可信等房间级模式权由 `pi-matrix-bridge` 自身的交互式 DM 命令（`/enable`、`/disable`、`/channels`）处理，不属于本插件范围。
 
 #### Scenario: 添加可信用户
 - **WHEN** 用户在配对面板输入 `@alice:example.org` 并确认添加
-- **THEN** 该用户 ID 出现在可信用户列表中，配置被持久化，且镜像文件中以 `matrix:@alice:example.org` 存储并在后台会话中生效
+- **THEN** 该用户 ID 出现在可信用户列表中，且文件中以 `matrix:@alice:example.org` 存储并在后台会话中生效
 
 #### Scenario: 移除可信用户
 - **WHEN** 用户从可信用户列表中移除某位用户
