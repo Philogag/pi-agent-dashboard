@@ -3,13 +3,15 @@
  *
  * Renders a settings-section contribution with three panels:
  *   A. Matrix connection config (homeserver, token, E2EE, auto-connect, workspace)
- *   B. Trusted-user pairing (managed as @user:server ids, mirror gets matrix: prefix)
+ *   B. Trusted-user pairing (managed as @user:server ids, persisted matrix: prefixed)
  *   C. Background session status/logs + lifecycle controls
  *
- * Matches the server surface in src/server/index.ts. Config is persisted via
- * plugin_config_write; session state is read via the plugin's REST endpoints
- * (REST polling — the client runtime exposes no generic WS-subscription hook,
- * see design.md reconciliation).
+ * Connection + pairing config lives in the NATIVE bridge file
+ * ~/.pi/matrix-bridge.json and is read/written via GET/POST /api/pi-matrix-bridge/config
+ * — never in the plugin store. The plugin store (usePluginConfig) only carries
+ * session-side fields (workspace, autoConnect, encryption), persisted via
+ * plugin_config_write. Session state is read via REST polling (the client
+ * runtime exposes no generic WS-subscription hook, see design.md reconciliation).
  *
  * Styling follows the dashboard's native convention: Tailwind utility classes
  * over the theme CSS variables (the bg / text / border / accent token families) so the
@@ -17,12 +19,13 @@
  * client's index.css `@source` directives so Tailwind v4 does not purge these
  * classes.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+
 import {
   usePluginConfig,
   usePluginSend,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import { useEffect, useRef, useState } from "react";
 import { EMPTY_CONFIG, isUserMatrixId, type MatrixBridgeConfig } from "./types.js";
 
 const API = "/api/pi-matrix-bridge";
@@ -59,6 +62,12 @@ interface Status {
   logs: string[];
 }
 
+interface Conn {
+  homeserverUrl: string;
+  accessToken: string;
+  trustedUsers: string[];
+}
+
 async function getStatus(): Promise<Status> {
   const res = await fetch(`${API}/status`);
   if (!res.ok) throw new Error(`status ${res.status}`);
@@ -88,9 +97,11 @@ export function Settings(_props: SlotProps<"settings-section">) {
   const [status, setStatus] = useState<Status | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  // Connection form, seeded from persisted config.
-  const [homeserverUrl, setHomeserverUrl] = useState(EMPTY_CONFIG.homeserverUrl);
-  const [accessToken, setAccessToken] = useState(EMPTY_CONFIG.accessToken);
+  // Connection + pairing, bound to the native bridge file via GET/POST /config.
+  const [conn, setConn] = useState<Conn>({ homeserverUrl: "", accessToken: "", trustedUsers: [] });
+  const [connError, setConnError] = useState<string | null>(null);
+
+  // Session-side form, seeded from persisted config (hydrated asynchronously).
   const [encryption, setEncryption] = useState(EMPTY_CONFIG.encryption);
   const [autoConnect, setAutoConnect] = useState(EMPTY_CONFIG.autoConnect);
   const [workspace, setWorkspace] = useState("");
@@ -104,25 +115,38 @@ export function Settings(_props: SlotProps<"settings-section">) {
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (hydratedRef.current) return;
-    const hasData =
-      !!config.homeserverUrl ||
-      !!config.accessToken ||
-      config.encryption != null ||
-      config.autoConnect != null ||
-      !!config.session?.workspace;
+    const hasData = config.encryption != null || config.autoConnect != null || !!config.session?.workspace;
     if (!hasData) return;
-    setHomeserverUrl(config.homeserverUrl ?? EMPTY_CONFIG.homeserverUrl);
-    setAccessToken(config.accessToken ?? EMPTY_CONFIG.accessToken);
     setEncryption(config.encryption ?? EMPTY_CONFIG.encryption);
     setAutoConnect(config.autoConnect ?? EMPTY_CONFIG.autoConnect);
     setWorkspace(config.session?.workspace ?? "");
     hydratedRef.current = true;
   }, [config]);
 
-  // Pairing.
+  // Seed connection + pairing from the native bridge file (via GET /config).
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/config`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as Partial<MatrixBridgeConfig>;
+        if (!alive) return;
+        setConn({
+          homeserverUrl: data.homeserverUrl ?? "",
+          accessToken: data.accessToken ?? "",
+          trustedUsers: data.auth?.trustedUsers ?? [],
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Pairing (bound to the native file snapshot).
   const [newUser, setNewUser] = useState("");
   const [pairError, setPairError] = useState<string | null>(null);
-  const trustedUsers = useMemo(() => config.auth?.trustedUsers ?? [], [config.auth?.trustedUsers]);
+  const trustedUsers = conn.trustedUsers;
 
   // Poll session status while the settings page is open.
   useEffect(() => {
@@ -147,16 +171,40 @@ export function Settings(_props: SlotProps<"settings-section">) {
     };
   }, []);
 
-  const persist = (next: Partial<MatrixBridgeConfig>) => {
+  // Persist session-side fields to the plugin store (connection stays in the file).
+  const persistSession = () =>
     void send({
       type: "plugin_config_write",
       id: "pi-matrix-bridge",
-      config: { ...config, ...next },
+      config: { ...config, autoConnect, encryption, session: { workspace } },
     });
+
+  // Write connection + pairing back to the native bridge file.
+  const writeConn = (next: Conn) => {
+    void fetch(`${API}/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as { ok?: boolean; error?: string } & Partial<MatrixBridgeConfig>;
+        if (!data.ok) {
+          setConnError(data.error ?? `config ${res.status}`);
+          return;
+        }
+        setConnError(null);
+        setConn({
+          homeserverUrl: data.homeserverUrl ?? next.homeserverUrl,
+          accessToken: data.accessToken ?? next.accessToken,
+          trustedUsers: data.auth?.trustedUsers ?? next.trustedUsers,
+        });
+      })
+      .catch((e) => setConnError(e instanceof Error ? e.message : String(e)));
   };
 
   const saveConnection = () => {
-    persist({ homeserverUrl, accessToken, encryption, autoConnect, session: { workspace } });
+    persistSession();
+    writeConn(conn);
   };
 
   const addUser = () => {
@@ -167,12 +215,12 @@ export function Settings(_props: SlotProps<"settings-section">) {
     }
     setPairError(null);
     const users = trustedUsers.includes(u) ? trustedUsers : [...trustedUsers, u];
-    persist({ auth: { trustedUsers: users } });
+    writeConn({ ...conn, trustedUsers: users });
     setNewUser("");
   };
 
   const removeUser = (u: string) => {
-    persist({ auth: { trustedUsers: trustedUsers.filter((x) => x !== u) } });
+    writeConn({ ...conn, trustedUsers: trustedUsers.filter((x) => x !== u) });
   };
 
   const post = (action: string) => void fetch(`${API}/${action}`, { method: "POST" });
@@ -182,7 +230,7 @@ export function Settings(_props: SlotProps<"settings-section">) {
       data-testid="pi-matrix-bridge-settings"
       className="space-y-3 text-sm text-[var(--text-primary)]"
     >
-      {/* ── A. Matrix connection config ── */}
+      {/* ── A. Matrix connection config (native ~/.pi/matrix-bridge.json) ── */}
       <section data-testid="matrix-config" className={PANEL_CLS}>
         <h4 className={PANEL_TITLE_CLS}>Matrix 连接配置</h4>
         <div className="grid gap-2.5">
@@ -191,8 +239,8 @@ export function Settings(_props: SlotProps<"settings-section">) {
             <input
               data-testid="homeserver-url"
               className={MONO_INPUT_CLS}
-              value={homeserverUrl}
-              onChange={(e) => setHomeserverUrl(e.target.value)}
+              value={conn.homeserverUrl}
+              onChange={(e) => setConn({ ...conn, homeserverUrl: e.target.value })}
               placeholder="https://matrix.example.org"
             />
           </label>
@@ -202,8 +250,8 @@ export function Settings(_props: SlotProps<"settings-section">) {
               data-testid="access-token"
               className={MONO_INPUT_CLS}
               type="password"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
+              value={conn.accessToken}
+              onChange={(e) => setConn({ ...conn, accessToken: e.target.value })}
             />
           </label>
           <label className={LABEL_CLS}>
@@ -239,6 +287,11 @@ export function Settings(_props: SlotProps<"settings-section">) {
           <button data-testid="save-connection" className={BTN_PRIMARY} onClick={saveConnection}>
             保存连接配置
           </button>
+          {connError && (
+            <div data-testid="conn-error" className={ERR_CLS}>
+              {connError}
+            </div>
+          )}
         </div>
       </section>
 

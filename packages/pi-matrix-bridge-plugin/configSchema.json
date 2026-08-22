@@ -2,16 +2,13 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "@blackbelt-technology/pi-matrix-bridge-plugin/configSchema",
   "title": "Pi Matrix Bridge config",
-  "description": "Plugin config persisted under plugins.pi-matrix-bridge.* in ~/.pi/dashboard/config.json",
+  "description": "Session-side plugin config (workspace/autoConnect/encryption). Connection and pairing config lives in the native bridge file ~/.pi/matrix-bridge.json and is never persisted here.",
   "type": "object",
   "properties": {
-    "homeserverUrl": { "type": "string" },
-    "accessToken": { "type": "string" },
     "encryption": { "type": "boolean", "default": true },
     "autoConnect": { "type": "boolean", "default": true },
-    "session": { "type": "object", "properties": { "workspace": { "type": "string" } }, "required": ["workspace"] },
-    "auth": { "type": "object", "properties": { "trustedUsers": { "type": "array", "items": { "type": "string" } } }, "required": ["trustedUsers"] }
+    "session": { "type": "object", "properties": { "workspace": { "type": "string" } }, "required": ["workspace"] }
   },
-  "required": ["homeserverUrl", "accessToken", "encryption", "autoConnect", "session", "auth"],
+  "required": ["encryption", "autoConnect", "session"],
   "additionalProperties": false
 }

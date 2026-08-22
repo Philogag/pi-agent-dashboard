@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { Settings } from "../../src/client.js";
 
@@ -16,14 +17,32 @@ vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", () => ({
   usePluginSend: () => contextMock.send,
 }));
 
-function mockStatus(status: Record<string, unknown>) {
-  global.fetch = vi.fn(async () => ({ ok: true, json: async () => status })) as unknown as typeof fetch;
+// URL-routed fetch mock: GET → url key, POST → `${url}:POST` key.
+const routes: Record<string, unknown> = {};
+function mockFetch(map: Record<string, unknown>) {
+  global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : String(input);
+    const key = init?.method === "POST" ? `${url}:POST` : url;
+    const value = map[key] ?? map[url] ?? { ok: true, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => value } as unknown as Response;
+  }) as unknown as typeof fetch;
 }
 
 beforeEach(() => {
   contextMock.config = {};
   contextMock.send = vi.fn();
-  mockStatus({ ok: true, state: "stopped", pid: null, logs: [] });
+  mockFetch({
+    "/api/pi-matrix-bridge/config": {
+      ok: true,
+      homeserverUrl: "",
+      accessToken: "",
+      autoConnect: true,
+      encryption: true,
+      session: { workspace: "" },
+      auth: { trustedUsers: [] },
+    },
+    "/api/pi-matrix-bridge/status": { ok: true, state: "stopped", pid: null, logs: [] },
+  });
 });
 
 describe("Settings (client settings-section)", () => {
@@ -36,36 +55,68 @@ describe("Settings (client settings-section)", () => {
     expect(screen.getByTestId("session-status")).toBeInTheDocument();
   });
 
-  it("adds a valid trusted user and persists it via plugin_config_write", async () => {
+  it("adds a valid trusted user via POST /config (not plugin_config_write)", async () => {
     render(<Settings pluginContext={undefined} />);
     fireEvent.change(screen.getByTestId("trusted-user-input"), {
       target: { value: "@alice:example.org" },
     });
     fireEvent.click(screen.getByTestId("add-user"));
 
-    expect(contextMock.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "plugin_config_write",
-        id: "pi-matrix-bridge",
-      }),
+    const post = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[1] as RequestInit)?.method === "POST",
     );
-    const sent = contextMock.send.mock.calls[0][0] as { config: { auth: { trustedUsers: string[] } } };
-    expect(sent.config.auth.trustedUsers).toContain("@alice:example.org");
+    expect(post).toBeDefined();
+    const body = JSON.parse((post![1] as RequestInit).body as string) as { trustedUsers: string[] };
+    expect(body.trustedUsers).toContain("@alice:example.org");
+    expect(contextMock.send).not.toHaveBeenCalled();
     expect(screen.queryByTestId("pair-error")).not.toBeInTheDocument();
   });
 
-  it("rejects an invalid user id with an error and does not persist", () => {
+  it("seeds connection + pairing from GET /config", async () => {
+    mockFetch({
+      "/api/pi-matrix-bridge/config": {
+        ok: true,
+        homeserverUrl: "https://file.example.org",
+        accessToken: "syt_file_token",
+        autoConnect: true,
+        encryption: true,
+        session: { workspace: "/tmp/ws" },
+        auth: { trustedUsers: ["@alice:example.org"] },
+      },
+      "/api/pi-matrix-bridge/status": { ok: true, state: "stopped", pid: null, logs: [] },
+    });
+    render(<Settings pluginContext={undefined} />);
+
+    expect(await screen.findByDisplayValue("https://file.example.org")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("syt_file_token")).toBeInTheDocument();
+    expect(await screen.findByText("@alice:example.org")).toBeInTheDocument();
+  });
+
+  it("rejects an invalid user id with an error and does not POST", () => {
     render(<Settings pluginContext={undefined} />);
     fireEvent.change(screen.getByTestId("trusted-user-input"), { target: { value: "not-a-user" } });
     fireEvent.click(screen.getByTestId("add-user"));
 
     expect(screen.getByTestId("pair-error")).toBeInTheDocument();
-    expect(contextMock.send).not.toHaveBeenCalled();
-    expect(contextMock.config.auth).toBeUndefined();
+    const posts = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => (c[1] as RequestInit)?.method === "POST",
+    );
+    expect(posts).toHaveLength(0);
   });
 
   it("shows the session state once the status endpoint responds", async () => {
-    mockStatus({ ok: true, state: "running", pid: 1234, logs: ["hello", "world"] });
+    mockFetch({
+      "/api/pi-matrix-bridge/config": {
+        ok: true,
+        homeserverUrl: "",
+        accessToken: "",
+        autoConnect: true,
+        encryption: true,
+        session: { workspace: "" },
+        auth: { trustedUsers: [] },
+      },
+      "/api/pi-matrix-bridge/status": { ok: true, state: "running", pid: 1234, logs: ["hello", "world"] },
+    });
     render(<Settings pluginContext={undefined} />);
 
     expect(await screen.findByTestId("bridge-state")).toHaveTextContent("running");
