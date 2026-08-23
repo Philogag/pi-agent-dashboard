@@ -22,8 +22,10 @@ const MAX_LOG_LINES = 200;
 
 /**
  * Manages the single background `pi` child process that drives the Matrix
- * bridge connection. Spawns `pi` in print mode, injects the bridge config via
- * env, and tracks a simple lifecycle state machine:
+ * bridge connection. Spawns `pi` in RPC mode (`--mode rpc`); the connect
+ * controller drives it by pushing JSONL commands (e.g. `/matrix-bridge
+ * connect`, an init test prompt) on stdin. Tracks a simple lifecycle state
+ * machine:
  *   stopped -> running; running -> (stop) stopping -> stopped; running -> exited.
  *
  * All lifecycle ops (start/stop/restart/detach) are serialized through a
@@ -55,6 +57,18 @@ export class BackgroundSession {
     return { state: this.state, pid: this.child?.pid ?? null, exitReason: this.exitReason };
   }
 
+  /**
+   * Push one RPC command to the child as a JSON line on its stdin (rpc mode).
+   * Used by the connect controller to issue `/matrix-bridge connect` and the
+   * initial test prompt. No-op when the child is absent or its stdin is gone.
+   */
+  sendRpc(message: string, id?: string): void {
+    const stdin = this.child?.stdin;
+    if (!stdin || !stdin.writable) return;
+    const payload = id === undefined ? { type: "prompt", message } : { type: "prompt", message, id };
+    stdin.write(`${JSON.stringify(payload)}\n`);
+  }
+
   private push(line: string): void {
     for (const raw of line.split("\n")) {
       const trimmed = raw.trim();
@@ -84,12 +98,9 @@ export class BackgroundSession {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      PI_MATRIX_BRIDGE_HOMESERVER: homeserverUrl,
-      PI_MATRIX_BRIDGE_ACCESS_TOKEN: accessToken,
-      // The spawned session exists solely for Matrix bridging: always auto-connect
-      // to Matrix regardless of the store's autoConnect toggle (which only gates
-      // whether the session is spawned at registration time).
-      PI_MATRIX_BRIDGE_AUTO_CONNECT: "1",
+      // Tell the child it runs headless under the dashboard (rpc mode); the
+      // matrix connection itself is driven via stdin RPC commands, not env.
+      PI_DASHBOARD_SPAWNED: "1",
     };
 
     // Guard against starting over a live child: tear it down first.
@@ -99,7 +110,7 @@ export class BackgroundSession {
     this.state = "stopping";
     this.emit();
 
-    const child = this.spawnImpl("pi", ["print"], { cwd: workspace || homedir(), env });
+    const child = this.spawnImpl("pi", ["--mode", "rpc"], { cwd: workspace || homedir(), env });
     this.child = child;
     this.state = "running";
     this.exitReason = undefined;

@@ -13,6 +13,10 @@
  *   POST /api/pi-matrix-bridge/stop     → stop it
  *   POST /api/pi-matrix-bridge/restart  → stop then start with latest config
  *
+ * After every successful start the connect controller pushes `/matrix-bridge
+ * connect` on the session's rpc stdin, waits for the extension lock file, sends
+ * the init test prompt, and DMs the paired trusted users (see connect-controller.ts).
+ *
  * The NATIVE bridge file (~/.pi/matrix-bridge.json, schema of the upstream
  * `pi-matrix-bridge` extension: top-level `matrix` + `auth`) is the single
  * source of truth for connection + pairing config. It is read once at
@@ -28,6 +32,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { MatrixBridgeConfig } from "../types.js";
 import { BridgeConfigError, type BridgeConfigInput, type BridgeFileJson, bridgeFilePath, flattenBridgeFile, readBridgeFile, writeBridgeConfig } from "./bridge-file.js";
+import { type ConnectControllerOptions, runConnectController } from "./connect-controller.js";
 import { BackgroundSession, type SpawnImpl } from "./session.js";
 
 export type { MatrixBridgeConfig };
@@ -36,6 +41,8 @@ export type { MatrixBridgeConfig };
 export interface ServerBridgeOptions {
   spawnImpl?: SpawnImpl;
   filePath?: string;
+  /** Connect controller seam (test-only injectable; defaults to runConnectController). */
+  connect?: (session: BackgroundSession, opts: ConnectControllerOptions) => Promise<void>;
 }
 
 const STATUS_TYPE = "pi-matrix-bridge_status" as never;
@@ -90,12 +97,25 @@ export default async function registerPlugin(
 
   ctx.broadcastToSubscribers({ type: STATUS_TYPE, info: bridge.info(), logs: bridge.logs });
 
+  // Drive the boot sequence of a freshly started session: RPC `/matrix-bridge
+  // connect`, lock polling, init prompt, and trusted-user DMs. Fire-and-forget.
+  const launchConnect = (): void => {
+    const e = effective();
+    void (opts.connect ?? runConnectController)(bridge, {
+      homeserverUrl: e.homeserverUrl,
+      accessToken: e.accessToken,
+      trustedUsers: e.auth.trustedUsers,
+      logger: ctx.logger,
+    });
+  };
+
   // Auto-start when configured (design D5): a native file with connection
   // details + store autoConnect=true brings the bridge up on boot.
   const initial = effective();
   if (initial.autoConnect && initial.homeserverUrl && initial.accessToken) {
     const res = await bridge.start();
     if (!res.ok) ctx.logger.warn(`matrix-bridge auto-start skipped: ${res.reason}`);
+    else launchConnect();
   }
 
   ctx.fastify.register(
@@ -127,6 +147,7 @@ export default async function registerPlugin(
       });
       r.post("/start", async () => {
         const res = await bridge.start();
+        if (res.ok) launchConnect();
         return { ok: res.ok, reason: res.reason, ...bridge.info() };
       });
       r.post("/stop", async () => {
@@ -135,6 +156,7 @@ export default async function registerPlugin(
       });
       r.post("/restart", async () => {
         const res = await bridge.restart();
+        if (res.ok) launchConnect();
         return { ok: res.ok, reason: res.reason, ...bridge.info() };
       });
     },

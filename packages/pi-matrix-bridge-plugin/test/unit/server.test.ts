@@ -22,6 +22,7 @@ interface CtxState {
   browserHandlers: string[];
   broadcasts: unknown[];
   spawnCalls: number;
+  connectCalls: number;
   lastSpawn: unknown;
   onEventHandlers: Array<(sessionId: string, event: unknown) => void>;
 }
@@ -34,6 +35,7 @@ function makeCtx(
     browserHandlers: [],
     broadcasts: [],
     spawnCalls: 0,
+    connectCalls: 0,
     lastSpawn: undefined,
     onEventHandlers: [],
   };
@@ -88,7 +90,7 @@ describe("registerPlugin (server wiring)", () => {
     const dir = mkdtempSync(join(tmpdir(), "mbr-boot-"));
     const target = join(dir, "matrix-bridge.json");
 
-    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never });
+    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never, connect: async () => {} });
 
     // REST routes under the plugin namespace.
     expect(state.registerPrefix).toBe("/api/pi-matrix-bridge");
@@ -113,13 +115,18 @@ describe("registerPlugin (server wiring)", () => {
         state.lastSpawn = opts;
         return fakeChild() as never;
       },
+      connect: async () => {
+        state.connectCalls += 1;
+      },
     });
 
     expect(state.spawnCalls).toBe(1);
+    expect(state.connectCalls).toBe(1); // controller drives connect + init prompt
     const env = (state.lastSpawn as { env?: Record<string, string> })?.env ?? {};
-    expect(env.PI_MATRIX_BRIDGE_HOMESERVER).toBe("https://file.example.org");
-    expect(env.PI_MATRIX_BRIDGE_ACCESS_TOKEN).toBe("syt_file_token");
-    expect(env.PI_MATRIX_BRIDGE_AUTO_CONNECT).toBe("1");
+    expect(env.PI_DASHBOARD_SPAWNED).toBe("1");
+    expect(env.PI_MATRIX_BRIDGE_HOMESERVER).toBeUndefined();
+    expect(env.PI_MATRIX_BRIDGE_ACCESS_TOKEN).toBeUndefined();
+    expect(env.PI_MATRIX_BRIDGE_AUTO_CONNECT).toBeUndefined();
   });
 
   it("does not auto-start without a usable bridge file", async () => {
@@ -133,9 +140,11 @@ describe("registerPlugin (server wiring)", () => {
         state.spawnCalls += 1;
         return fakeChild() as never;
       },
+      connect: async () => {},
     });
 
     expect(state.spawnCalls).toBe(0);
+    expect(state.connectCalls).toBe(0);
   });
 
   it("reserved pathway: records other-session events with unspoofable transport sessionId", async () => {
@@ -143,7 +152,7 @@ describe("registerPlugin (server wiring)", () => {
     const target = join(dir, "matrix-bridge.json");
     const { ctx, state } = makeCtx({ homeserverUrl: "", accessToken: "", session: {}, auth: { trustedUsers: ["@alice:example.org"] } });
 
-    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never });
+    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never, connect: async () => {} });
 
     // The reserved pathway is backed by ctx.onEvent (transport-attributed sessionId).
     expect(state.onEventHandlers).toHaveLength(1);
@@ -161,7 +170,7 @@ describe("registerPlugin (server wiring)", () => {
     const target = join(dir, "matrix-bridge.json");
     const { ctx, state } = makeCtx({ homeserverUrl: "", accessToken: "", session: {}, auth: { trustedUsers: [] } });
 
-    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never });
+    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never, connect: async () => {} });
 
     state.onEventHandlers[0]("session-X", { eventType: "some_event" });
     const forwards = state.broadcasts.filter((b) => (b as { type?: string }).type === "pi-matrix-bridge_forward");
@@ -177,7 +186,7 @@ describe("registerPlugin /config REST surface (real fastify)", () => {
   ): Promise<{ app: ReturnType<typeof Fastify>; code: (url: string, body?: unknown) => ReturnType<typeof fetch> }> {
     const app = Fastify();
     const { ctx } = makeCtx(config, app);
-    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never });
+    await registerPlugin(ctx, { filePath: target, spawnImpl: () => fakeChild() as never, connect: async () => {} });
     const code = async (url: string, body?: unknown) => {
       const res = await app.inject({ method: body === undefined ? "GET" : "POST", url, payload: body ? JSON.stringify(body) : undefined, headers: body ? { "content-type": "application/json" } : undefined });
       return { status: res.statusCode, json: () => res.json() } as never;

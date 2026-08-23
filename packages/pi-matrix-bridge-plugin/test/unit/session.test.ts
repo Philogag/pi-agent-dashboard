@@ -21,6 +21,14 @@ class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
   killed: NodeJS.Signals[] = [];
+  stdin = {
+    writable: true,
+    writes: [] as string[],
+    write: (chunk: string) => {
+      this.stdin.writes.push(chunk);
+      return true;
+    },
+  };
   constructor(
     public cmd: string,
     public args: string[],
@@ -34,6 +42,9 @@ class FakeChild extends EventEmitter {
   }
   emitExit(code: number | null, signal: NodeJS.Signals | null): void {
     this.emit("exit", code, signal);
+  }
+  writes(): string[] {
+    return this.stdin.writes;
   }
 }
 
@@ -59,29 +70,56 @@ describe("BackgroundSession", () => {
     expect(res.ok).toBe(true);
     expect(invocations).toHaveLength(1);
     expect(invocations[0].cmd).toBe("pi");
-    expect(invocations[0].args).toEqual(["print"]);
+    expect(invocations[0].args).toEqual(["--mode", "rpc"]);
     expect(invocations[0].opts).toEqual(
       expect.objectContaining({
         cwd: expect.any(String),
         env: expect.objectContaining({
-          PI_MATRIX_BRIDGE_HOMESERVER: base.homeserverUrl,
-          PI_MATRIX_BRIDGE_ACCESS_TOKEN: base.accessToken,
-          PI_MATRIX_BRIDGE_AUTO_CONNECT: "1",
+          PI_DASHBOARD_SPAWNED: "1",
         }),
       }),
     );
+    // Connection is driven via rpc stdin — bridge env must NOT leak into the child.
+    expect(invocations[0].opts.env).not.toHaveProperty("PI_MATRIX_BRIDGE_HOMESERVER");
+    expect(invocations[0].opts.env).not.toHaveProperty("PI_MATRIX_BRIDGE_ACCESS_TOKEN");
+    expect(invocations[0].opts.env).not.toHaveProperty("PI_MATRIX_BRIDGE_AUTO_CONNECT");
     expect(session.state).toBe("running");
     expect(session.info().pid).toBe(child!.pid);
   });
 
-  it("forces PI_MATRIX_BRIDGE_AUTO_CONNECT=1 even when store autoConnect is off (matrix-dedicated session)", async () => {
+  it("spawns with rpc mode and PI_DASHBOARD_SPAWNED env even when store autoConnect is off", async () => {
     const spawnImpl: SpawnImpl = (cmd, args, opts) => new FakeChild(cmd, args, opts) as unknown as ChildProcess;
     const session = new BackgroundSession(() => ({ ...base, autoConnect: false }), spawnImpl);
 
     const res = await session.start();
 
     expect(res.ok).toBe(true);
-    expect((session.child as unknown as FakeChild).opts.env?.["PI_MATRIX_BRIDGE_AUTO_CONNECT"]).toBe("1");
+    const child = session.child as unknown as FakeChild;
+    expect(child.args).toEqual(["--mode", "rpc"]);
+    expect(child.opts.env?.["PI_DASHBOARD_SPAWNED"]).toBe("1");
+    expect(child.opts.env?.["PI_MATRIX_BRIDGE_HOMESERVER"]).toBeUndefined();
+    expect(child.opts.env?.["PI_MATRIX_BRIDGE_AUTO_CONNECT"]).toBeUndefined();
+  });
+
+  it("sendRpc() writes JSONL prompt lines to child stdin (with optional id)", async () => {
+    let child: FakeChild | undefined;
+    const spawnImpl: SpawnImpl = (cmd, args, opts) => {
+      child = new FakeChild(cmd, args, opts);
+      return child as unknown as ChildProcess;
+    };
+    const session = new BackgroundSession(() => base, spawnImpl);
+
+    await session.start();
+
+    session.sendRpc("/matrix-bridge connect", "matrix-connect");
+    session.sendRpc("hello");
+    expect(child!.writes()).toContain(JSON.stringify({ type: "prompt", message: "/matrix-bridge connect", id: "matrix-connect" }) + "\n");
+    expect(child!.writes()).toContain(JSON.stringify({ type: "prompt", message: "hello" }) + "\n");
+  });
+
+  it("sendRpc() no-ops when no child is running", () => {
+    const session = new BackgroundSession(() => base, () => ({} as ChildProcess));
+    expect(() => session.sendRpc("/matrix-bridge connect")).not.toThrow();
   });
 
   it("start() with an incomplete config returns ok:false and does not spawn", async () => {
@@ -180,7 +218,7 @@ describe("BackgroundSession", () => {
     expect(children).toHaveLength(2);
     expect(session.state).toBe("running");
     expect(session.info().pid).toBe(children[1].pid);
-    expect(children[1].opts.env?.["PI_MATRIX_BRIDGE_HOMESERVER"]).toBe("https://b.example");
+    expect(children[1].opts.env?.["PI_DASHBOARD_SPAWNED"]).toBe("1");
   });
 
   it("serializes overlapping start() calls: last child wins, stale exit is ignored", async () => {
