@@ -133,10 +133,12 @@ WORKDIR /src/dashboard
 RUN pnpm install \
  && pnpm run build
 
-# pack the npm tarballs the server graph needs at runtime: the workspace
-# packages the server depends on (client = @blackbelt-technology/pi-dashboard-web)
-# plus the kb series (core lib, isolated agent extension, dashboard plugin) so
-# the server can load them as external plugins from ~/.pi/dashboard/plugins.
+# pack the npm tarballs the server graph needs at runtime: every workspace
+# package the server/client graphs depend on (workspace versions only —
+# several plugin packages like grammar-plugin are not published to npm, so a
+# bare registry resolve 404s), plus the kb series (core lib, isolated agent
+# extension, dashboard plugin). Peers of the packed set (e.g.
+# @blackbelt-technology/pi-anthropic-messages) resolve from the registry.
 # Deliberately NOT packing the root meta package (pi-agent-dashboard): it also
 # ships a `pi-dashboard` bin and, in a multi-tarball global install, wins the
 # /bin symlink; from its nested location `jiti` is not a resolvable dep, which
@@ -145,8 +147,11 @@ RUN pnpm install \
 # NOTE: `./packages/...` — without the `./` npm treats the path as a
 # GitHub shorthand spec (user/repo) and tries `git ls-remote` on it.
 RUN mkdir -p /out \
-  && for p in server client shared extension dashboard-plugin-runtime document-converter \
-             kb kb-extension kb-plugin subagents-plugin; do \
+  && for p in server client shared extension dashboard-plugin-runtime \
+             document-converter kb kb-extension kb-plugin subagents-plugin \
+             apple-tools automation-plugin blackhole-plugin bus-client client-utils \
+             cost-estimator flows-anthropic-bridge-plugin flows-plugin goal-plugin \
+             grammar-plugin hermes-memory-plugin quota-plugin roles-plugin session-distiller; do \
        npm pack ./packages/$p --ignore-scripts --pack-destination /out || exit 1; \
      done \
   && ls -la /out
