@@ -148,7 +148,7 @@ RUN pnpm install \
 # GitHub shorthand spec (user/repo) and tries `git ls-remote` on it.
 RUN mkdir -p /out \
   && for p in server client shared extension dashboard-plugin-runtime document-converter \
-             kb kb-extension kb-plugin pi-matrix-bridge-plugin; do \
+             kb kb-extension kb-plugin pi-matrix-bridge-plugin subagents-plugin; do \
        npm pack ./packages/$p --ignore-scripts --pack-destination /out || exit 1; \
      done \
   && ls -la /out
@@ -188,6 +188,9 @@ COPY --from=dashboard-builder /out/pi-version /pi-version
 # optional peer of the kb extension so its src loads without a resolution miss)
 # pi-ai is installed global too: the server's model-proxy resolves it from the
 # top-level global node_modules, and pi/pi-ai are version-lockstepped.
+# pi-dashboard-subagents ships the pi-side subagents; the plugin built from
+# packages/subagents-plugin requires it as a pi extension (`requires.n`), and
+# the loader probes pi's installed-extension set.
 RUN PIV="${PI_VERSION:-$(cat /pi-version)}" \
  && [ -n "$PIV" ] || { echo "[runtime] no pi version from ARG or builder pin"; exit 1; } \
  && echo "[runtime] installing pi/pi-ai @ $PIV" \
@@ -195,6 +198,7 @@ RUN PIV="${PI_VERSION:-$(cat /pi-version)}" \
  && npm install -g "@earendil-works/pi-ai@$PIV" \
  && npm install -g @fission-ai/openspec \
  && npm install -g typebox@1 \
+ && npm install -g @blackbelt-technology/pi-dashboard-subagents \
  && npm cache clean --force
 
 # install the built dashboard tarballs (single npm pass so the
@@ -318,6 +322,17 @@ if [ -d "\${MB_PLUGIN_SRC}" ]; then
   ln -s \${MB_PLUGIN_SRC}/src \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin/src
   ln -s /opt/node/latest/lib/node_modules \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin/node_modules
 fi
+
+echo "[supervisor][info] Link subagents plugin for dashboard plugin discovery"
+SA_PLUGIN_SRC=/opt/node/latest/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents-plugin
+if [ -d "\${SA_PLUGIN_SRC}" ]; then
+  rm -rf \${KB_PLUGIN_DIR}/subagents-plugin
+  mkdir -p \${KB_PLUGIN_DIR}/subagents-plugin
+  cp \${SA_PLUGIN_SRC}/package.json \${KB_PLUGIN_DIR}/subagents-plugin/package.json
+  ln -s \${SA_PLUGIN_SRC}/src \${KB_PLUGIN_DIR}/subagents-plugin/src
+  ln -s /opt/node/latest/lib/node_modules \${KB_PLUGIN_DIR}/subagents-plugin/node_modules
+fi
+
 chown -R "\${PUID}:\${PGID}" \${KB_PLUGIN_DIR} 2>/dev/null || true
 
 echo "[supervisor][info] Register kb extension in pi settings"
@@ -330,6 +345,14 @@ KB_EXT_SRC=/opt/node/latest/lib/node_modules/@blackbelt-technology/pi-dashboard-
 if [ -d "\${KB_EXT_SRC}" ]; then
   if ! jq -e --arg p "\${KB_EXT_SRC}" '(.packages // []) | index(\$p)' "\${PI_SETTINGS}" >/dev/null 2>&1; then
     jq --arg p "\${KB_EXT_SRC}" '.packages = ((.packages // []) + [\$p])' "\${PI_SETTINGS}" > "\${PI_SETTINGS}.tmp" \
+      && mv "\${PI_SETTINGS}.tmp" "\${PI_SETTINGS}"
+  fi
+fi
+
+SA_EXT_SRC=/opt/node/latest/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents
+if [ -d "\${SA_EXT_SRC}" ]; then
+  if ! jq -e --arg p "\${SA_EXT_SRC}" '(.packages // []) | index(\$p)' "\${PI_SETTINGS}" >/dev/null 2>&1; then
+    jq --arg p "\${SA_EXT_SRC}" '.packages = ((.packages // []) + [\$p])' "\${PI_SETTINGS}" > "\${PI_SETTINGS}.tmp" \
       && mv "\${PI_SETTINGS}.tmp" "\${PI_SETTINGS}"
   fi
 fi
