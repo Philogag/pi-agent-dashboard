@@ -4,9 +4,8 @@
 #  Unlike the upstream oh-pi-dashboard (which codeload-fetches the dashboard
 #  source at a DASHBOARD_REF), this Dockerfile builds from the LOCAL build
 #  context — i.e. whatever is checked out in THIS repository at build time.
-#  That guarantees fork-local changes to packages/ (including the relocated
-#  pi-matrix-bridge-plugin, whose settings-section client UI only ships when
-#  it lives inside this monorepo's source tree) are baked into the image.
+#  That guarantees changes to packages/ in this branch's source tree are
+#  baked into the image.
 #
 #  Build it from the repo root:
 #      docker build -t pi-agent-dashboard . --build-arg MIRROR_CN=0
@@ -126,8 +125,8 @@ RUN apt-get update \
 # build THIS repo's checked-out source. .dockerignore prunes .git / node_modules
 # / dist before transfer so the context stays small. The web client build
 # (packages/client, via the workspace build script) embeds every plugin under
-# packages/ with a `pi-dashboard-plugin` manifest — including the relocated
-# pi-matrix-bridge-plugin — into the immutable production bundle.
+# packages/ with a `pi-dashboard-plugin` manifest into the immutable
+# production bundle.
 COPY . /src/dashboard
 WORKDIR /src/dashboard
 
@@ -136,9 +135,8 @@ RUN pnpm install \
 
 # pack the npm tarballs the server graph needs at runtime: the workspace
 # packages the server depends on (client = @blackbelt-technology/pi-dashboard-web)
-# plus the kb series (core lib, isolated agent extension, dashboard plugin) and
-# the relocated pi-matrix-bridge-plugin (so the server can load it as an
-# external plugin from ~/.pi/dashboard/plugins).
+# plus the kb series (core lib, isolated agent extension, dashboard plugin) so
+# the server can load them as external plugins from ~/.pi/dashboard/plugins.
 # Deliberately NOT packing the root meta package (pi-agent-dashboard): it also
 # ships a `pi-dashboard` bin and, in a multi-tarball global install, wins the
 # /bin symlink; from its nested location `jiti` is not a resolvable dep, which
@@ -148,7 +146,7 @@ RUN pnpm install \
 # GitHub shorthand spec (user/repo) and tries `git ls-remote` on it.
 RUN mkdir -p /out \
   && for p in server client shared extension dashboard-plugin-runtime document-converter \
-             kb kb-extension kb-plugin pi-matrix-bridge-plugin subagents-plugin; do \
+             kb kb-extension kb-plugin subagents-plugin; do \
        npm pack ./packages/$p --ignore-scripts --pack-destination /out || exit 1; \
      done \
   && ls -la /out
@@ -311,16 +309,6 @@ if [ -d "\${KB_PLUGIN_SRC}" ]; then
   # the entry lives outside the global node_modules tree — a plain package
   # symlink alone breaks the module namespace ("Cannot find module ...")
   ln -s /opt/node/latest/lib/node_modules \${KB_PLUGIN_DIR}/kb-plugin/node_modules
-fi
-
-echo "[supervisor][info] Link pi-matrix-bridge plugin for dashboard plugin discovery"
-MB_PLUGIN_SRC=/opt/node/latest/lib/node_modules/@blackbelt-technology/pi-matrix-bridge-plugin
-if [ -d "\${MB_PLUGIN_SRC}" ]; then
-  rm -rf \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin
-  mkdir -p \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin
-  cp \${MB_PLUGIN_SRC}/package.json \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin/package.json
-  ln -s \${MB_PLUGIN_SRC}/src \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin/src
-  ln -s /opt/node/latest/lib/node_modules \${KB_PLUGIN_DIR}/pi-matrix-bridge-plugin/node_modules
 fi
 
 echo "[supervisor][info] Link subagents plugin for dashboard plugin discovery"
