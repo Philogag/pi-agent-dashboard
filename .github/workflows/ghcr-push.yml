@@ -1,5 +1,5 @@
 # =============================================================================
-#  ghcr image (my-custom mainline)
+#  ghcr image (fork dev branches)
 #
 #  Builds the root Dockerfile — which, unlike oh-pi-dashboard's, builds from
 #  THIS repo's own local source (fork-local changes to packages/ are baked
@@ -9,20 +9,21 @@
 #    ghcr.io/<owner>/pi-agent-dashboard:git-<short-sha>   (current commit)
 #
 #  Triggers:
-#    - push     : every push to the my-custom mainline branch
+#    - push     : every push to a fork dev branch (my-custom, develop-fork)
 #    - manual   : workflow_dispatch (Actions tab)
 # =============================================================================
 
-name: ghcr image (my-custom)
+name: ghcr image (fork dev branches)
 
 on:
   workflow_dispatch:
   push:
     branches:
       - my-custom
+      - develop-fork
 
 concurrency:
-  group: ghcr-image
+  group: ghcr-image-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
