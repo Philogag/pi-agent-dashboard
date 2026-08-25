@@ -152,7 +152,15 @@ RUN mkdir -p /out \
              apple-tools automation-plugin blackhole-plugin bus-client client-utils \
              cost-estimator flows-anthropic-bridge-plugin flows-plugin goal-plugin \
              grammar-plugin hermes-memory-plugin quota-plugin roles-plugin session-distiller; do \
-       npm pack ./packages/$p --ignore-scripts --pack-destination /out || exit 1; \
+       # pnpm-only `workspace:` protocol specs (quota-plugin deps the server
+       # that way) are unresolvable by npm — a later `npm install -g` of the
+       # packed tarballs crashes silently in arborist. Rewrite them to the
+       # real workspace version inside the container before packing.
+       jq --arg v "$(jq -r .version packages/$p/package.json)" \
+          'def fix: with_entries(.value |= if (type == "string" and startswith("workspace:")) then (if . == "workspace:*" then "^" + $v else .[10:] end) else . end); if has("dependencies") then .dependencies |= fix else . end | if has("optionalDependencies") then .optionalDependencies |= fix else . end | if has("peerDependencies") then .peerDependencies |= fix else . end' \
+          packages/$p/package.json > packages/$p/package.json.patched \
+       && mv packages/$p/package.json.patched packages/$p/package.json \
+       && npm pack ./packages/$p --ignore-scripts --pack-destination /out || exit 1; \
      done \
   && ls -la /out
 
